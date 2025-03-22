@@ -9,14 +9,21 @@ import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
+import { supabase } from "@/lib/supabase"
+import { useAuth } from "@/contexts/auth-context"
+import { toast } from "sonner"
+import { Input } from "@/components/ui/input"
+import { generateLearningPath } from "@/lib/gemini"
 
 export function RoadmapCreator() {
+  const { user } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
 
   // Form state
+  const [title, setTitle] = useState("")
   const [learningGoal, setLearningGoal] = useState("")
   const [experience, setExperience] = useState("beginner")
   const [timeCommitment, setTimeCommitment] = useState(5) // hours per week
@@ -24,20 +31,116 @@ export function RoadmapCreator() {
   const totalSteps = 3
 
   const handleSubmit = async () => {
+    if (!user) {
+      toast.error("You must be logged in to create a roadmap")
+      return
+    }
+
     setIsSubmitting(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      // Enhanced validation
+      if (!learningGoal || learningGoal.trim() === "") {
+        throw new Error("Please specify what you want to learn")
+      }
 
-    setIsSubmitting(false)
-    setIsComplete(true)
+      if (learningGoal.trim().length < 3) {
+        throw new Error("Learning goal is too short")
+      }
 
-    // Reset after showing success
-    setTimeout(() => {
-      setIsOpen(false)
-      setCurrentStep(0)
-      setIsComplete(false)
-    }, 2000)
+      // Prepare roadmap data with enhanced title generation
+      const generatedTitle = title || `Learn ${learningGoal.split(" ").slice(0, 4).join(" ")}`
+      const roadmapData = {
+        user_id: user.id,
+        title: generatedTitle,
+        learning_goal: learningGoal.trim(),
+        experience_level: experience,
+        time_commitment: timeCommitment,
+      }
+
+      console.log("Creating roadmap with data:", roadmapData)
+      
+      // Create roadmap in Supabase with better error handling
+      const { data, error } = await supabase
+        .from('roadmaps')
+        .insert([roadmapData])
+        .select()
+      
+      if (error) {
+        console.error("Supabase insert error:", error)
+        if (error.code === "23505") {
+          throw new Error("You already have a roadmap with this title")
+        } else if (error.code?.startsWith("23")) {
+          throw new Error("Database constraint error - please try again")
+        } else if (error.code === "42501") {
+          throw new Error("Permission denied - you may not have access to create roadmaps")
+        } else {
+          throw new Error(`Database error: ${error.message || "Unknown database error"}`)
+        }
+      }
+      
+      if (!data || data.length === 0) {
+        console.error("No data returned from database insert")
+        throw new Error("Failed to create roadmap: No data returned")
+      }
+      
+      const newRoadmapId = data[0].id
+      console.log("Roadmap created successfully:", data[0])
+      
+      // Proceed to generate learning path using Gemini AI
+      try {
+        const timeCommitmentString = timeCommitment <= 3 ? "1-week" : timeCommitment >= 8 ? "3-months" : "1-month"
+        
+        // Call Gemini API to generate learning path
+        console.log(`Generating learning path for ${learningGoal} with commitment ${timeCommitmentString}`)
+        
+        // Generate the learning path
+        const learningPathResult = await generateLearningPath({
+          skill: learningGoal,
+          timeCommitment: timeCommitmentString,
+          userId: user.id,
+          roadmapId: newRoadmapId
+        })
+        
+        console.log("Learning path generated:", learningPathResult)
+        
+        setIsComplete(true)
+        toast.success("Roadmap created successfully!")
+      } catch (aiError: any) {
+        console.error("Error generating learning path:", aiError)
+        // Show partial success message if roadmap was created but content generation failed
+        setIsComplete(true)
+        toast("Roadmap created, but content generation encountered an issue", {
+          description: "Your roadmap was saved but we couldn't generate content. Please try again later.",
+          action: {
+            label: "Retry",
+            onClick: () => window.location.reload()
+          }
+        })
+      }
+      
+      // Reset form
+      setTitle("")
+      setLearningGoal("")
+      setExperience("beginner")
+      setTimeCommitment(5)
+      
+      // Reset after showing success
+      setTimeout(() => {
+        setIsOpen(false)
+        setCurrentStep(0)
+        setIsComplete(false)
+        
+        // Reload the page to show the new roadmap
+        window.location.reload()
+      }, 2000)
+    } catch (error: any) {
+      console.error("Error creating roadmap:", error)
+      const errorMessage = error.message || "An unexpected error occurred"
+      toast.error(`Failed to create roadmap: ${errorMessage}`)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const nextStep = () => {
@@ -185,15 +288,27 @@ export function RoadmapCreator() {
                           <p className="text-sm text-muted-foreground">
                             Tell us what skills or topics you're interested in learning. Be as specific as possible.
                           </p>
-                          <div className="space-y-2">
-                            <Label htmlFor="learning-goal">Learning Goal</Label>
-                            <Textarea
-                              id="learning-goal"
-                              placeholder="e.g., Web development with React and Next.js, Machine Learning fundamentals, etc."
-                              value={learningGoal}
-                              onChange={(e) => setLearningGoal(e.target.value)}
-                              className="min-h-[120px]"
-                            />
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="roadmap-title">Roadmap Title (Optional)</Label>
+                              <Input
+                                id="roadmap-title"
+                                placeholder="e.g., Web Development Path, ML Journey, etc."
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="learning-goal">Learning Goal</Label>
+                              <Textarea
+                                id="learning-goal"
+                                placeholder="e.g., Web development with React and Next.js, Machine Learning fundamentals, etc."
+                                value={learningGoal}
+                                onChange={(e) => setLearningGoal(e.target.value)}
+                                className="min-h-[120px]"
+                                required
+                              />
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -308,7 +423,10 @@ export function RoadmapCreator() {
                     <ChevronLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button onClick={nextStep}>
+                  <Button 
+                    onClick={nextStep}
+                    disabled={currentStep === 0 && learningGoal.trim() === ""}
+                  >
                     {currentStep === totalSteps - 1 ? "Create Roadmap" : "Next"}
                     {currentStep === totalSteps - 1 ? (
                       <Sparkles className="ml-2 h-4 w-4" />

@@ -34,6 +34,35 @@ export type Database = {
           avatar_url?: string | null
           updated_at?: string | null
         }
+      },
+      roadmaps: {
+        Row: {
+          id: string
+          created_at: string
+          user_id: string
+          title: string
+          learning_goal: string
+          experience_level: string
+          time_commitment: number
+        },
+        Insert: {
+          id?: string
+          created_at?: string
+          user_id: string
+          title: string
+          learning_goal: string
+          experience_level: string
+          time_commitment: number
+        },
+        Update: {
+          id?: string
+          created_at?: string
+          user_id?: string
+          title?: string
+          learning_goal?: string
+          experience_level?: string
+          time_commitment?: number
+        }
       }
     }
   }
