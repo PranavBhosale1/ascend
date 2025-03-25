@@ -47,11 +47,6 @@ export default function DashboardLayout({
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
     {
-      title: "Learning",
-      href: "/dashboard/learning",
-      icon: <BookOpen className="h-5 w-5" />,
-    },
-    {
       title: "Calendar",
       href: "/dashboard/calendar",
       icon: <Calendar className="h-5 w-5" />,
@@ -60,6 +55,11 @@ export default function DashboardLayout({
       title: "Community",
       href: "/dashboard/community",
       icon: <Users className="h-5 w-5" />,
+    },
+    {
+      title: "About",
+      href: "/dashboard/about",
+      icon: <BookOpen className="h-5 w-5" />,
     },
     {
       title: "Settings",
@@ -127,38 +127,7 @@ export default function DashboardLayout({
           </nav>
           
           <div className="mt-6 px-3">
-            <div className="space-y-1">
-              <p className={`px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground ${
-                !isSidebarOpen && "hidden"
-              }`}>
-                Your Roadmaps
-              </p>
-              {/* Roadmap list will be dynamically populated */}
-              <div className="mt-1 space-y-1">
-                <Link
-                  href="/dashboard/roadmaps/1"
-                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground ${
-                    pathname === "/dashboard/roadmaps/1"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
-                  } ${!isSidebarOpen && "justify-center md:px-2"}`}
-                >
-                  <Home className="h-5 w-5" />
-                  {isSidebarOpen && <span>Web Development</span>}
-                </Link>
-                <Link
-                  href="/dashboard/roadmaps/2"
-                  className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground ${
-                    pathname === "/dashboard/roadmaps/2"
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
-                  } ${!isSidebarOpen && "justify-center md:px-2"}`}
-                >
-                  <Home className="h-5 w-5" />
-                  {isSidebarOpen && <span>Data Science</span>}
-                </Link>
-              </div>
-            </div>
+            {/* No more Roadmaps section */}
           </div>
         </div>
         <div className="border-t p-4">

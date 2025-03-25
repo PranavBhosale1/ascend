@@ -14,13 +14,16 @@ import { useAuth } from "@/contexts/auth-context"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { generateLearningPath } from "@/lib/gemini"
+import { useRouter } from 'next/navigation'
 
 export function RoadmapCreator() {
   const { user } = useAuth()
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
 
   // Form state
   const [title, setTitle] = useState("")
@@ -48,10 +51,14 @@ export function RoadmapCreator() {
         throw new Error("Learning goal is too short")
       }
 
+      // Get Supabase user ID
+      const supabaseUserId = user.id;
+      console.log("Using Supabase user ID:", supabaseUserId);
+      
       // Prepare roadmap data with enhanced title generation
       const generatedTitle = title || `Learn ${learningGoal.split(" ").slice(0, 4).join(" ")}`
       const roadmapData = {
-        user_id: user.id,
+        user_id: supabaseUserId,
         title: generatedTitle,
         learning_goal: learningGoal.trim(),
         experience_level: experience,
@@ -88,19 +95,20 @@ export function RoadmapCreator() {
       console.log("Roadmap created successfully:", data[0])
       
       // Proceed to generate learning path using Gemini AI
+      setIsGenerating(true)
       try {
         const timeCommitmentString = timeCommitment <= 3 ? "1-week" : timeCommitment >= 8 ? "3-months" : "1-month"
         
         // Call Gemini API to generate learning path
         console.log(`Generating learning path for ${learningGoal} with commitment ${timeCommitmentString}`)
         
-        // Generate the learning path
-        const learningPathResult = await generateLearningPath({
-          skill: learningGoal,
-          timeCommitment: timeCommitmentString,
-          userId: user.id,
-          roadmapId: newRoadmapId
-        })
+        // Pass the Supabase user ID to the generateLearningPath function
+        const learningPathResult = await generateLearningPath(
+          learningGoal,
+          timeCommitmentString,
+          supabaseUserId,  // Pass Supabase user ID here
+          newRoadmapId
+        );
         
         console.log("Learning path generated:", learningPathResult)
         
@@ -117,6 +125,8 @@ export function RoadmapCreator() {
             onClick: () => window.location.reload()
           }
         })
+      } finally {
+        setIsGenerating(false)
       }
       
       // Reset form
@@ -130,9 +140,7 @@ export function RoadmapCreator() {
         setIsOpen(false)
         setCurrentStep(0)
         setIsComplete(false)
-        
-        // Reload the page to show the new roadmap
-        window.location.reload()
+        router.refresh()
       }, 2000)
     } catch (error: any) {
       console.error("Error creating roadmap:", error)

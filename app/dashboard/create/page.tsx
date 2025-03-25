@@ -111,12 +111,16 @@ export default function CreateLearningPathPage() {
       console.log("Roadmap created with ID:", roadmapId)
 
       try {
-        const learningPath = await generateLearningPath({
+        // Get Supabase user ID
+        const supabaseUserId = user.id;
+        console.log("Using Supabase user ID:", supabaseUserId);
+        
+        const learningPath = await generateLearningPath(
           skill,
           timeCommitment,
-          userId: user.id,
-          roadmapId,
-        })
+          supabaseUserId, // Pass Supabase user ID directly
+          roadmapId
+        )
         
         console.log("Learning path generated successfully:", learningPath.title)
 

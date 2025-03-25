@@ -73,4 +73,15 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
-  EXECUTE FUNCTION public.handle_new_user(); 
+  EXECUTE FUNCTION public.handle_new_user();
+
+CREATE TABLE roadmap_data (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    roadmap_id UUID NOT NULL,
+    topic_name TEXT NOT NULL,
+    search_queries TEXT[] NOT NULL,
+    day_number INTEGER NOT NULL,
+    position INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+); 

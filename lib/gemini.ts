@@ -3,6 +3,7 @@
 
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { supabase } from "@/lib/supabase";
+import mongoose from 'mongoose';
 
 // Define interfaces for the learning path structure
 export interface LearningResource {
@@ -42,6 +43,13 @@ export interface GeminiGenerateParams {
   roadmapId: string;
 }
 
+// Add these types at the top of your file where other interfaces are defined
+export interface TopicWithQueries {
+  name: string;
+  queries: string[];
+  links?: string[][];
+}
+
 // Check if Gemini API key is configured and valid
 export async function checkGeminiConfig(): Promise<{ 
   hasKey: boolean;
@@ -49,7 +57,7 @@ export async function checkGeminiConfig(): Promise<{
   modelVersion: string;
 }> {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
     
     if (!apiKey) {
       return { hasKey: false, isValid: false, modelVersion: 'none' };
@@ -73,7 +81,7 @@ export async function checkGeminiConfig(): Promise<{
   } catch (error) {
     console.error("Error checking Gemini API key:", error);
     return {
-      hasKey: !!process.env.GEMINI_API_KEY,
+      hasKey: !!process.env.NEXT_PUBLIC_GEMINI_API_KEY,
       isValid: false,
       modelVersion: 'gemini-2.0-flash'
     };
@@ -87,23 +95,38 @@ export async function generateLearningPath(
   userId?: string,
   roadmapId?: string
 ): Promise<LearningPath> {
+  console.log('=== STARTING LEARNING PATH GENERATION ===');
+
   try {
-    // Check if API key exists
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
     if (!apiKey) {
-      console.warn("Gemini API key not found. Using mock data instead.");
-      return getMockLearningPath(skills, timeCommitment);
+      throw new Error("Gemini API key not found. Check your environment variables.");
     }
     
-    // Normalize skills to array
-    const skillsArray = Array.isArray(skills) ? skills : [skills];
-    
-    // Initialize the Google AI client
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     
-    // Configure safety settings
-    const safetySettings = [
+    // Define the prompt properly
+    const prompt = `Please provide the complete, unabridged response to full DSA roadmap . I want this roadmap in the perspective of YouTube search, so give me searches accordingly, 
+Divide the whole plan into days, with 2 hours per day.
+You can break topics as needed—there is no requirement to complete a topic in 30 minutes or one day. If a topic requires more time, allocate it accordingly. If a topic doesn't require 30 minutes, you may reduce its time.Also if you think there is need of practice or revision also add days like that and give me this road map as divided in as may topic as possible Also there is no restriction that you have to genetrate the roadmap ofr only 60 days etc you have open hands give each topic appropriate time .
+Provide the entire response in one go without truncating.
+**Format:**
+Day: [Day Number]
+total time 40min(this should be near to 120min)
+Topic Name:
+Time allotted: 30 MIN 
+To search: "[Search Query]"
+To search: "[Search Query]"
+To search: "[Search Query]"
+Time allotted: 10 MIN
+To search: "[Search Query]"
+note :- if the topic is like insertion at end insertion at start and insertion at between in a link list then provide me insertion in  alink list as query as this is more appropriate so according to you and your knowledge of youtube provide it `;
+
+    console.log('Making API call to Gemini...');
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      safetySettings: [
       {
         category: HarmCategory.HARM_CATEGORY_HARASSMENT,
         threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -120,179 +143,363 @@ export async function generateLearningPath(
         category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
         threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
       },
-    ];
-    
-    // Structured prompt
-    const prompt = `
-      I want you to create a comprehensive learning path for ${skillsArray.join(', ')} with a time commitment of ${timeCommitment}.
-      
-      The learning path should include:
-      1. A title for the learning path
-      2. A breakdown of modules with descriptions and estimated duration
-      3. Specific, high-quality learning resources for each module including:
-         - Title of resource
-         - Type (article, video, course, project, etc.)
-         - URL
-         - Brief description
-      
-      Please format your response as JSON with the following structure:
-      {
-        "title": "Learning Path Title",
-        "skills": ["Skill 1", "Skill 2"],
-        "timeCommitment": "${timeCommitment}",
-        "modules": [
-          {
-            "title": "Module Title",
-            "description": "Module description",
-            "duration": "Estimated duration",
-            "resources": [
-              {
-                "title": "Resource Title",
-                "type": "Resource type",
-                "url": "Resource URL",
-                "description": "Resource description"
-              }
-            ]
-          }
-        ]
-      }
-      
-      Focus on providing practical, actionable steps with the best quality resources. Ensure URLs are accurate and resources are well-regarded in the field.
-    `;
-    
-    // Generate content
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      safetySettings,
+      ],
       generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 4096,
+        temperature: 1.0,
+        topK: 150,
+        topP: 1.0,
+        maxOutputTokens: 100000,
       },
     });
-    
-    // Parse the response
-    const textResponse = result.response.text();
-    
-    // Extract JSON from the response (handling potential text before/after JSON)
-    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.warn("Could not extract JSON from Gemini response. Using mock data instead.");
-      return getMockLearningPath(skills, timeCommitment);
+
+    if (!result.response) {
+      throw new Error('No response received from Gemini API');
     }
+
+    const textResponse = await result.response.text();
+    console.log('Raw response:', textResponse);
+
+    // Process the response
+    const cleanedString = textResponse.replace(/\\"/g, '"').replace(/\\n/g, '\n');
     
-    try {
-      const learningPath = JSON.parse(jsonMatch[0]) as LearningPath;
-      
-      // Set ID if provided
-      if (roadmapId) {
-        learningPath.id = roadmapId;
-      }
-      
-      // Transform resources if needed
-      learningPath.modules = learningPath.modules.map((module, moduleIndex) => {
-        // Set module ID and position
-        if (!module.id) {
-          module.id = `module-${moduleIndex}`;
+    console.log('Extracting topics and queries...');
+    const topicMatches = [...cleanedString.matchAll(/Topic Name:\s*(.*?)(?=\n|$)/g)];
+    const topics = topicMatches.map(match => match[1].trim());
+    
+    console.log(`Found ${topics.length} topics:`, topics);
+
+    const searchQueries = cleanedString.match(/To search: "([^"]+)"/g)?.map(item => 
+      item.match(/To search: "(.*?)"/)?.[1] || ''
+    ) || [];
+    
+    console.log(`Found ${searchQueries.length} search queries:`, searchQueries);
+
+    let results: TopicWithQueries[] = [];
+    let queryIndex = 0;
+
+    topics.forEach((topic, i) => {
+      let queries = [];
+      while (queryIndex < searchQueries.length) {
+        if (i < topics.length - 1 && cleanedString.indexOf(topics[i + 1]) < cleanedString.indexOf(searchQueries[queryIndex])) {
+          break;
         }
-        module.position = moduleIndex;
-        
-        // Map resources to include required fields
-        module.resources = module.resources.map((resource, resourceIndex) => {
-          return {
-            id: `resource-${moduleIndex}-${resourceIndex}`,
-            title: resource.title,
-            description: resource.description,
-            resourceType: resource.type,
-            url: resource.url,
-            difficultyLevel: moduleIndex === 0 ? "beginner" : 
-                            moduleIndex === learningPath.modules.length - 1 ? "advanced" : 
-                            "intermediate",
-            estimatedTime: 30, // Default estimated time
-          };
-        });
-        
-        return module;
-      });
-      
-      // Try to save to Supabase if we have the user ID and roadmap ID
-      if (userId && roadmapId) {
-        saveToSupabase(learningPath, roadmapId);
+        queries.push(searchQueries[queryIndex]);
+        queryIndex++;
       }
-      
-      return learningPath;
-    } catch (parseError) {
-      console.error("Error parsing Gemini JSON response:", parseError);
-      return getMockLearningPath(skills, timeCommitment);
+      results.push({ name: topic, queries });
+    });
+
+    console.log('Processed results:', results);
+
+    // Save to MongoDB if IDs are provided
+      if (userId && roadmapId) {
+      console.log('Saving to MongoDB...');
+      try {
+        await saveToMongoDB(results, roadmapId, userId);
+        console.log('Successfully saved to MongoDB');
+      } catch (error) {
+        console.error('Failed to save to MongoDB:', error);
+      }
     }
+
+    const learningPath: LearningPath = {
+      title: `Learning Path for ${Array.isArray(skills) ? skills.join(', ') : skills}`,
+      skills: Array.isArray(skills) ? skills : [skills],
+      description: `A comprehensive learning path for ${Array.isArray(skills) ? skills.join(', ') : skills}`,
+      timeCommitment: timeCommitment,
+      modules: results.map((result, index) => ({
+        id: `module-${index}`,
+        title: result.name,
+        description: `Learning resources for ${result.name}`,
+        position: index,
+        resources: result.queries.map((query: string, queryIndex: number) => ({
+          id: `resource-${index}-${queryIndex}`,
+          title: query,
+          description: `Search query: ${query}`,
+          resourceType: 'video',
+          url: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+          difficultyLevel: index === 0 ? 'beginner' : 
+                          index === results.length - 1 ? 'advanced' : 
+                          'intermediate',
+          estimatedTime: 30
+        }))
+      }))
+    };
+
+    console.log('=== LEARNING PATH GENERATION COMPLETE ===');
+    return learningPath;
+
   } catch (error) {
-    console.error("Error generating learning path with Gemini:", error);
-    return getMockLearningPath(skills, timeCommitment);
+    console.error('=== ERROR IN LEARNING PATH GENERATION ===');
+    console.error('Error details:', error);
+    throw error;
   }
 }
 
-// Try to save learning path to Supabase
-async function saveToSupabase(learningPath: LearningPath, roadmapId: string) {
+// Save to MongoDB instead of Supabase
+async function saveToMongoDB(processedData: TopicWithQueries[], roadmapId: string, userId: string) {
+  console.log('=== SAVING TO MONGODB ===');
   try {
-    // Check if Supabase is connected
-    const { error: connectionError } = await supabase.from("roadmaps").select("id").limit(1);
-    if (connectionError) {
-      console.error("Supabase connection error, skipping save:", connectionError);
-      return;
-    }
+    // Check if we should skip YouTube API calls due to quota limits or errors
+    let skipYouTubeAPI = process.env.NEXT_PUBLIC_SKIP_YOUTUBE_API === 'true';
     
-    // Update roadmap description
-    await supabase
-      .from("roadmaps")
-      .update({
-        description: learningPath.description || `A learning path for ${learningPath.skills?.join(', ') || 'skills'}`,
-      })
-      .eq("id", roadmapId);
-    
-    // Save modules and resources
-    for (let i = 0; i < learningPath.modules.length; i++) {
-      const module = learningPath.modules[i];
+    // TEST PHASE: Try 1-2 YouTube API calls first to verify the API key works
+    if (!skipYouTubeAPI) {
+      console.log('Testing YouTube API with 1-2 queries first...');
       
-      for (let j = 0; j < module.resources.length; j++) {
-        const resource = module.resources[j];
-        
-        // Insert resource
-        const { error: resourceError } = await supabase
-          .from("learning_resources")
-          .insert({
-            id: `resource-${roadmapId}-${i}-${j}`,
-            title: resource.title,
-            description: resource.description,
-            resource_type: resource.resourceType || "other",
-            url: resource.url,
-            content: resource.content,
-            difficulty_level: resource.difficultyLevel || "intermediate",
-            estimated_time: resource.estimatedTime || 30,
-          });
+      // Take a sample query from the data
+      const sampleTopic = processedData[0];
+      const sampleQuery = sampleTopic?.queries?.[0];
+      
+      if (sampleQuery) {
+        try {
+          console.log(`Testing YouTube API with sample query: "${sampleQuery}"`);
+          const testResult = await fetchYouTubeLink(sampleQuery);
           
-        if (resourceError) {
-          console.error("Error inserting resource:", resourceError);
-          continue;
-        }
-        
-        // Create roadmap_resources junction
-        const { error: junctionError } = await supabase
-          .from("roadmap_resources")
-          .insert({
-            roadmap_id: roadmapId,
-            resource_id: `resource-${roadmapId}-${i}-${j}`,
-            position: i * 100 + j,
-          });
-          
-        if (junctionError) {
-          console.error("Error inserting roadmap_resource:", junctionError);
+          if (testResult.length > 0 && !testResult[0].includes('dQw4w9WgXcQ')) {
+            console.log('✅ YouTube API test successful! Proceeding with all queries.');
+          } else {
+            console.warn('⚠️ YouTube API test returned mock data. Using mock data for all queries.');
+            // Update local variable instead of process.env
+            skipYouTubeAPI = true;
+          }
+        } catch (error) {
+          console.error('❌ YouTube API test failed:', error);
+          // Update local variable instead of process.env
+          skipYouTubeAPI = true;
         }
       }
     }
+    
+    // MAIN PHASE: Process all topics based on test results
+    console.log('Fetching YouTube links for queries...');
+    
+    // Use the local variable
+    const finalSkipYouTubeAPI = skipYouTubeAPI;
+    
+    let processedTopicsWithLinks;
+    
+    if (finalSkipYouTubeAPI) {
+      console.log('Using mock YouTube links for all queries');
+      // Create mock links instead
+      processedTopicsWithLinks = processedData.map(topic => ({
+        ...topic,
+        links: (topic.queries || []).map(query => getMockYouTubeLinks(query))
+      }));
+    } else {
+      try {
+        // Only process first few days/topics for initial testing
+        const limitTopics = true; // Set to false to process all topics
+        const topicsToProcess = limitTopics ? processedData.slice(0, 2) : processedData;
+        
+        if (limitTopics) {
+          console.log(`⚠️ TESTING MODE: Only processing first ${topicsToProcess.length} topics`);
+        }
+        
+        processedTopicsWithLinks = await processTopics(topicsToProcess);
+        
+        // If we're in testing mode, add mock data for the rest
+        if (limitTopics && processedData.length > topicsToProcess.length) {
+          const remainingTopics = processedData.slice(topicsToProcess.length).map(topic => ({
+            ...topic,
+            links: (topic.queries || []).map(query => getMockYouTubeLinks(query))
+          }));
+          
+          processedTopicsWithLinks = [...processedTopicsWithLinks, ...remainingTopics];
+          console.log(`Added mock data for remaining ${remainingTopics.length} topics`);
+        }
+      } catch (error) {
+        console.error('Error processing topics for YouTube links:', error);
+        // Fallback to mock links
+        processedTopicsWithLinks = processedData.map(topic => ({
+          ...topic,
+          links: (topic.queries || []).map(query => getMockYouTubeLinks(query))
+        }));
+      }
+    }
+    
+    // Create proper API URL for Next.js app
+    const apiUrl = '/api/roadmaps/save';
+    
+    console.log('Making API request to:', apiUrl);
+    
+    const topicsToSave = processedTopicsWithLinks.map((topic, index) => ({
+      name: topic.name,
+      queries: topic.queries,
+      links: topic.links || [],
+      day: index + 1,
+      position: index
+    }));
+    
+    // Instead of directly connecting to MongoDB from the client, use an API route
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        roadmapId,
+        userId,
+        title: `Roadmap ${roadmapId}`,
+        description: `Generated roadmap with ${processedData.length} topics`,
+        topics: topicsToSave
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
+      throw new Error(errorData.message || `Failed to save to MongoDB: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('API Response:', result);
+    
+    console.log('=== SUCCESSFULLY SAVED TO MONGODB ===');
+    return true;
   } catch (error) {
-    console.error("Error saving to Supabase:", error);
+    console.error('=== ERROR SAVING TO MONGODB ===');
+    console.error('Error details:', error);
+    return false;
   }
+}
+
+// Fetch YouTube links for each query
+async function fetchYouTubeLink(query: string): Promise<string[]> {
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || "AIzaSyARjEHDfb4VdEpGE00zXYJqlmNzSsidKn4";
+    const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&key=${apiKey}&maxResults=5`;
+    
+    console.log(`Fetching YouTube links for query: "${query}"`);
+    
+    const response = await fetch(searchUrl);
+    
+    // Check if the response is ok
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`YouTube API error (${response.status}): ${errorText}`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    const data = await response.json();
+    
+    // Check if items exists and is not empty
+    if (!data.items || data.items.length === 0) {
+      console.warn(`No YouTube results found for query: "${query}"`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    // Extract video IDs from the search response
+    const videoIds = data.items.map((item: any) => item.id.videoId).join(",");
+    
+    if (!videoIds) {
+      console.warn(`No valid video IDs found for query: "${query}"`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    // Fetch video details to get duration
+    const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${apiKey}`;
+    const detailsResponse = await fetch(detailsUrl);
+    
+    if (!detailsResponse.ok) {
+      const errorText = await detailsResponse.text();
+      console.error(`YouTube API details error (${detailsResponse.status}): ${errorText}`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    const detailsData = await detailsResponse.json();
+    
+    if (!detailsData.items || detailsData.items.length === 0) {
+      console.warn(`No YouTube video details found for query: "${query}"`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    let validVideos: string[] = [];
+    
+    // Filter videos that are 5 minutes or longer
+    for (const video of detailsData.items) {
+      if (!video.contentDetails || !video.contentDetails.duration) continue;
+      
+      const duration = video.contentDetails.duration; // Example: "PT21M45S"
+      const match = duration.match(/PT(\d+)M(\d+)?S?/);
+      
+      if (!match) continue;
+      
+      const minutes = parseInt(match[1]) || 0;
+      if (minutes >= 5) { // Filter for videos at least 5 minutes long
+        validVideos.push(`https://www.youtube.com/watch?v=${video.id}`);
+      }
+    }
+    
+    if (validVideos.length === 0) {
+      console.warn(`No valid videos (5+ min) found for query: "${query}"`);
+      return getMockYouTubeLinks(query);
+    }
+    
+    console.log(`Found ${validVideos.length} valid YouTube videos for query: "${query}"`);
+    return validVideos;
+  } catch (error) {
+    console.error("Error fetching YouTube links:", error);
+    return getMockYouTubeLinks(query);
+  }
+}
+
+// Generate mock YouTube links for when the API fails
+function getMockYouTubeLinks(query: string): string[] {
+  console.log(`Using mock YouTube links for query: "${query}"`);
+  
+  // Return actual YouTube links for common DSA topics
+  const encodedQuery = encodeURIComponent(query);
+  
+  // Generate 2-3 links based on the query
+  return [
+    `https://www.youtube.com/watch?v=0IAPZzGSbME&q=${encodedQuery}`, // Generic programming video 1
+    `https://www.youtube.com/watch?v=8hly31xKli0&q=${encodedQuery}`, // Generic programming video 2
+    `https://www.youtube.com/watch?v=RBSGKlAvoiM&q=${encodedQuery}`  // Generic programming video 3
+  ];
+}
+
+async function processTopics(topicsData: TopicWithQueries[]): Promise<Array<TopicWithQueries & { links: string[][] }>> {
+  const newFormat = [];
+  let processedCount = 0;
+  const totalTopics = topicsData.length;
+
+  console.log(`Processing ${totalTopics} topics to fetch YouTube links...`);
+
+  for (const topic of topicsData) {
+    processedCount++;
+    const topicName = topic.name;
+    const queries = topic.queries || [];
+    const links: string[][] = [];
+
+    console.log(`[${processedCount}/${totalTopics}] Processing topic: "${topicName}" with ${queries.length} queries`);
+
+    // Fetch YouTube links for each query
+    for (const query of queries) {
+      try {
+        const videoLinks = await fetchYouTubeLink(query);
+        links.push(videoLinks);
+      } catch (error) {
+        console.error(`Error processing query "${query}":`, error);
+        // Add mock links as fallback
+        links.push(getMockYouTubeLinks(query));
+      }
+    }
+
+    // Push formatted data
+    newFormat.push({
+      name: topicName,
+      queries: queries,
+      links: links
+    });
+
+    // Log progress
+    if (processedCount % 5 === 0 || processedCount === totalTopics) {
+      console.log(`Progress: ${processedCount}/${totalTopics} topics processed (${Math.round(processedCount/totalTopics*100)}%)`);
+    }
+  }
+
+  console.log(`Completed processing ${totalTopics} topics with YouTube links`);
+  return newFormat;
 }
 
 // Fallback to mock data if API key is missing or an error occurs
@@ -390,4 +597,5 @@ function getMockLearningPath(skills: string[] | string, timeCommitment: string):
     ]
   };
 }
+
 
