@@ -4,6 +4,7 @@ import Link from "next/link"
 import { motion } from "framer-motion"
 import { ArrowRight, BookOpen, Brain, Code, Sparkles, Target, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { LearningTimer } from "@/components/learning-timer"
 
 export default function Home() {
   // Animation variants
@@ -51,6 +52,9 @@ export default function Home() {
           >
             Ascend Flow
           </motion.h1>
+          <div className="mx-auto">
+            <LearningTimer />
+          </div>
           <motion.nav
             className="ml-auto flex gap-4 sm:gap-6"
             initial={{ opacity: 0 }}

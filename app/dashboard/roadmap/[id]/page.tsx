@@ -38,6 +38,29 @@ interface Topic {
   _id: string;
 }
 
+// Add this function before the RoadmapPage component
+function getEmbedUrl(url: string): string {
+  if (!url) return ''
+  
+  // Handle YouTube URLs
+  const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/
+  const match = url.match(youtubeRegex)
+  
+  if (match) {
+    return `https://www.youtube.com/embed/${match[1]}`
+  }
+  
+  // Handle Vimeo URLs
+  const vimeoRegex = /(?:vimeo\.com\/)([0-9]+)/
+  const vimeoMatch = url.match(vimeoRegex)
+  
+  if (vimeoMatch) {
+    return `https://player.vimeo.com/video/${vimeoMatch[1]}`
+  }
+  
+  return url
+}
+
 export default function RoadmapViewPage() {
   const router = useRouter()
   const params = useParams()
@@ -232,20 +255,6 @@ export default function RoadmapViewPage() {
         ? prev.filter(id => id !== topicId)
         : [...prev, topicId]
     );
-  };
-
-  // Convert YouTube URL to embedded format
-  const getEmbedUrl = (url: string) => {
-    if (!url) return null;
-    
-    const regex = /(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    const match = url.match(regex);
-    
-    if (match && match[1]) {
-      return `https://www.youtube.com/embed/${match[1]}`;
-    } else {
-      return url; // Return original if not a YouTube URL
-    }
   };
 
   // Mark video as completed

@@ -70,6 +70,7 @@ interface MongoRoadmap {
   createdAt: string;
   updatedAt: string;
   totalVideos: number;
+  learningTime?: number;
 }
 
 // Topic interface from MongoDB
@@ -397,9 +398,15 @@ export default function DashboardPage() {
                         <CardTitle>{roadmap.title}</CardTitle>
                         <CardDescription className="mt-1">{roadmap.description}</CardDescription>
                       </div>
-                      <span className="text-sm font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-                        {roadmap.progress || 0}% Complete
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {Math.floor((roadmap.learningTime || 0) / 3600)}h {Math.floor(((roadmap.learningTime || 0) % 3600) / 60)}m
+                        </Badge>
+                        <Badge variant="outline">
+                          {roadmap.progress || 0}% Complete
+                        </Badge>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -434,8 +441,11 @@ export default function DashboardPage() {
                       <div className="mt-4">
                         <div className="text-sm font-medium mb-2">Topics</div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {roadmap.topics.slice(0, 4).map((topic) => (
-                            <div key={topic._id} className="flex items-center p-2 rounded-md border">
+                          {roadmap.topics.slice(0, 4).map((topic, index) => (
+                            <div 
+                              key={`${roadmap.roadmapId}-topic-${topic._id || index}`} 
+                              className="flex items-center p-2 rounded-md border"
+                            >
                               {topic.completed ? (
                                 <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
                               ) : (

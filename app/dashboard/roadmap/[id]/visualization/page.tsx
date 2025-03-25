@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import { Timer } from "@/components/timer"
 
 interface Topic {
   _id: string
@@ -41,6 +42,7 @@ interface Roadmap {
   completedVideos: string[]
   progress: number
   totalVideos: number
+  learningTime?: number
 }
 
 export default function RoadmapVisualizationPage() {
@@ -51,6 +53,8 @@ export default function RoadmapVisualizationPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTopic, setActiveTopic] = useState<Topic | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [learningTime, setLearningTime] = useState(0)
+  const [lastSavedTime, setLastSavedTime] = useState(0)
   
   // Fetch roadmap data
   useEffect(() => {
@@ -96,6 +100,35 @@ export default function RoadmapVisualizationPage() {
     
     fetchRoadmap()
   }, [params.id, user])
+  
+  // Save learning time periodically
+  useEffect(() => {
+    const saveInterval = setInterval(async () => {
+      if (learningTime > lastSavedTime && user && params.id) {
+        try {
+          const response = await fetch('/api/roadmaps/update-time', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              roadmapId: params.id,
+              supabaseUserId: user.id,
+              learningTime: learningTime - lastSavedTime,
+            }),
+          })
+          
+          if (response.ok) {
+            setLastSavedTime(learningTime)
+          }
+        } catch (error) {
+          console.error('Error saving learning time:', error)
+        }
+      }
+    }, 60000) // Save every minute
+    
+    return () => clearInterval(saveInterval)
+  }, [learningTime, lastSavedTime, user, params.id])
   
   // Handle topic click
   const handleTopicClick = (topic: Topic) => {
@@ -184,7 +217,7 @@ export default function RoadmapVisualizationPage() {
           </h1>
           <p className="text-muted-foreground mt-1">{roadmap.description}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           <Badge variant="outline" className="px-3 py-1">
             Progress: {roadmap.progress || 0}%
           </Badge>
@@ -193,19 +226,6 @@ export default function RoadmapVisualizationPage() {
           </Button>
         </div>
       </div>
-      
-      {/* Overall progress */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Your Journey</CardTitle>
-          <CardDescription>
-            {roadmap.completedVideos?.length || 0} of {roadmap.totalVideos} videos completed
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Progress value={roadmap.progress || 0} className="h-2" />
-        </CardContent>
-      </Card>
       
       {/* Roadmap visualization */}
       <div className="overflow-hidden">

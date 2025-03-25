@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { LearningTimer } from "@/components/learning-timer"
 
 export default function DashboardLayout({
   children,
@@ -189,7 +190,7 @@ export default function DashboardLayout({
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-16 items-center justify-between border-b px-4 md:px-6">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <Button
               variant="ghost"
               size="icon"
@@ -198,6 +199,9 @@ export default function DashboardLayout({
             >
               <Menu className="h-5 w-5" />
             </Button>
+            <div className="fixed left-1/2 ">
+              <LearningTimer />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle />
