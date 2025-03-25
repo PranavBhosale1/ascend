@@ -1,187 +1,187 @@
-"use client"
+"use client";
 
-import { useEffect, useState, useRef } from "react"
-import { Clock, Play, Pause } from "lucide-react"
-import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { useAuth } from "@/contexts/auth-context"
-
-interface TimeStamp {
-  time: number
-  timestamp: Date
-}
+import { useEffect, useState } from "react";
+import { Clock, Play, Pause } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/auth-context";
 
 interface DailyProgress {
-  totalTime: number
-  lastUpdated: Date
-  timestamps: TimeStamp[]
+  date: string;
+  time: number;
 }
 
 export function LearningTimer() {
-  const [time, setTime] = useState(0)
-  const [isRunning, setIsRunning] = useState(true)
-  const lastActivityRef = useRef(Date.now())
-  const inactivityTimeoutRef = useRef<NodeJS.Timeout>()
-  const { user } = useAuth()
-  const saveTimeoutRef = useRef<NodeJS.Timeout>()
-  const [dailyProgress, setDailyProgress] = useState<DailyProgress | null>(null)
+  const [time, setTime] = useState(0);
+  const [isRunning, setIsRunning] = useState(true);
+  const { user } = useAuth();
 
-  // Function to save time to MongoDB
-  const saveTimeToDatabase = async () => {
-    if (!user?.id) return
+  // Get today's date in YYYY-MM-DD format
+  const getTodayDate = () => new Date().toISOString().split("T")[0];
+
+  // Save time to MongoDB
+  const saveTimeToDatabase = async (newTime: number) => {
+    if (!user?.id) return console.warn("⚠️ User not logged in, skipping MongoDB update.");
 
     try {
-      await fetch('/api/roadmaps/update-time', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ time }),
-      })
-    } catch (error) {
-      console.error('Failed to save time to database:', error)
-    }
-  }
+      console.log("📡 Sending updated time to MongoDB:", newTime);
+      const response = await fetch("/api/roadmaps/update-time", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          date: getTodayDate(),
+          time: newTime,
+        }),
+      });
 
-  // Function to load time from MongoDB
+      if (!response.ok) throw new Error("Failed to update MongoDB");
+      console.log("✅ Time successfully saved to MongoDB.");
+    } catch (error) {
+      console.error("❌ Error saving to MongoDB:", error);
+    }
+  };
+
+  // Load time from MongoDB
   const loadTimeFromDatabase = async () => {
-    if (!user?.id) return
+    if (!user?.id) return console.warn("⚠️ User not logged in, skipping MongoDB load.");
 
     try {
-      const response = await fetch('/api/roadmaps/update-time')
-      const data = await response.json()
-      if (data.learningTime) {
-        setTime(data.learningTime)
-        setDailyProgress({
-          totalTime: data.learningTime,
-          lastUpdated: new Date(),
-          timestamps: data.timestamps || []
-        })
+      console.log("📡 Fetching today's time from MongoDB...");
+      const response = await fetch(`/api/roadmaps/update-time?userId=${user.id}`);
+      const data = await response.json();
+
+      if (data?.learningTime !== undefined) {
+        console.log(`✅ Loaded time from MongoDB: ${data.learningTime}`);
+        setTime(data.learningTime);
+      } else {
+        console.log("❌ No entry found for today in MongoDB, starting fresh.");
       }
     } catch (error) {
-      console.error('Failed to load time from database:', error)
+      console.error("❌ Error loading time from MongoDB:", error);
     }
-  }
+  };
 
+  // Load time from localStorage & MongoDB
   useEffect(() => {
-    // Load saved time from localStorage and database
-    const savedTime = localStorage.getItem('learningTime')
-    if (savedTime) {
-      setTime(parseInt(savedTime))
-    }
-    loadTimeFromDatabase()
+    const savedData = localStorage.getItem("learningTimeData");
+    const today = getTodayDate();
 
-    // Function to update last activity time
-    const updateLastActivity = () => {
-      lastActivityRef.current = Date.now()
-      if (inactivityTimeoutRef.current) {
-        clearTimeout(inactivityTimeoutRef.current)
-      }
-      // Set new timeout for 30 minutes
-      inactivityTimeoutRef.current = setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          setIsRunning(false)
-          saveTimeToDatabase()
-        }
-      }, 30 * 60 * 1000) // 30 minutes in milliseconds
-    }
+    if (savedData) {
+      const parsedData: DailyProgress[] = JSON.parse(savedData);
+      const todayEntry = parsedData.find((entry) => entry.date === today);
 
-    // Function to handle visibility change
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // If tab becomes visible, check if we should auto-start
-        const timeSinceLastActivity = Date.now() - lastActivityRef.current
-        if (timeSinceLastActivity < 30 * 60 * 1000) {
-          setIsRunning(true)
-        }
+      if (todayEntry) {
+        console.log(`📅 Found today's entry in localStorage:`, todayEntry);
+        setTime(todayEntry.time);
       } else {
-        // If tab becomes hidden, pause the timer and save
-        setIsRunning(false)
-        saveTimeToDatabase()
+        console.log("❌ No entry for today in localStorage, resetting timer.");
+        setTime(0);
       }
     }
 
-    // Function to handle beforeunload
-    const handleBeforeUnload = () => {
-      saveTimeToDatabase()
-    }
+    loadTimeFromDatabase();
+  }, [user?.id]);
 
-    // Add event listeners for activity detection
-    window.addEventListener('mousemove', updateLastActivity)
-    window.addEventListener('keydown', updateLastActivity)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('beforeunload', handleBeforeUnload)
-
-    // Start the timer
+  // Timer logic
+  useEffect(() => {
     const interval = setInterval(() => {
-      if (isRunning) {
-        setTime(prevTime => {
-          const newTime = prevTime + 1
-          // Save to localStorage every second
-          localStorage.setItem('learningTime', newTime.toString())
-          // Save to database every minute
-          if (newTime % 60 === 0) {
-            saveTimeToDatabase()
-          }
-          return newTime
-        })
+      if (!isRunning) return;
+
+      setTime((prevTime) => {
+        const newTime = prevTime + 1;
+        console.log("⏳ Updating time:", newTime);
+
+        const today = getTodayDate();
+        const savedData = localStorage.getItem("learningTimeData");
+        let data: DailyProgress[] = savedData ? JSON.parse(savedData) : [];
+
+        // Update localStorage
+        const todayIndex = data.findIndex((entry) => entry.date === today);
+        if (todayIndex !== -1) {
+          data[todayIndex].time = newTime;
+        } else {
+          data.push({ date: today, time: newTime });
+        }
+        localStorage.setItem("learningTimeData", JSON.stringify(data));
+
+        // Save to MongoDB every minute
+        if (newTime % 60 === 0) saveTimeToDatabase(newTime);
+
+        return newTime;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRunning, user?.id]);
+
+  // Reset timer when the day changes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const today = getTodayDate();
+      const savedData = localStorage.getItem("learningTimeData");
+
+      if (savedData) {
+        const parsedData: DailyProgress[] = JSON.parse(savedData);
+        const latestEntry = parsedData[parsedData.length - 1];
+
+        if (latestEntry?.date !== today) {
+          console.log("🌅 New day detected, resetting timer.");
+          setTime(0);
+          saveTimeToDatabase(0);
+        }
       }
-    }, 1000)
+    }, 60000); // Check every minute
 
-    // Initial activity timeout setup
-    updateLastActivity()
+    return () => clearInterval(interval);
+  }, []);
 
-    // Cleanup function
-    return () => {
-      clearInterval(interval)
-      if (inactivityTimeoutRef.current) {
-        clearTimeout(inactivityTimeoutRef.current)
+  // Pause timer when tab is hidden
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log("🛑 Tab hidden, pausing timer...");
+        setIsRunning(false);
+        saveTimeToDatabase(time);
+      } else {
+        console.log("▶️ Tab visible, resuming timer...");
+        setIsRunning(true);
       }
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
-      }
-      window.removeEventListener('mousemove', updateLastActivity)
-      window.removeEventListener('keydown', updateLastActivity)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      saveTimeToDatabase() // Save one final time before unmounting
-    }
-  }, [isRunning, user?.id])
+    };
 
-  // Format time into hours, minutes, and seconds
-  const hours = Math.floor(time / 3600)
-  const minutes = Math.floor((time % 3600) / 60)
-  const seconds = time % 60
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [time]);
 
-  const toggleTimer = () => {
-    setIsRunning(!isRunning)
-    if (!isRunning) {
-      saveTimeToDatabase()
-    }
-  }
+  // Format time display
+  const hours = Math.floor(time / 3600);
+  const minutes = Math.floor((time % 3600) / 60);
+  const seconds = time % 60;
 
   return (
     <Card className="p-4 flex items-center gap-2 bg-primary/5">
       <Clock className="h-5 w-5 text-primary" />
       <div className="font-medium">
-        {hours.toString().padStart(2, '0')}:
-        {minutes.toString().padStart(2, '0')}:
-        {seconds.toString().padStart(2, '0')}
+        {hours.toString().padStart(2, "0")}:
+        {minutes.toString().padStart(2, "0")}:
+        {seconds.toString().padStart(2, "0")}
       </div>
       <div className="flex items-center gap-1 ml-2">
         <Button
           variant="ghost"
           size="icon"
-          onClick={toggleTimer}
+          onClick={() => {
+            console.log(isRunning ? "⏸️ Pausing Timer" : "▶️ Starting Timer");
+            setIsRunning(!isRunning);
+            if (!isRunning) {
+              saveTimeToDatabase(time);
+            }
+          }}
           className="h-8 w-8"
         >
-          {isRunning ? (
-            <Pause className="h-4 w-4" />
-          ) : (
-            <Play className="h-4 w-4" />
-          )}
+          {isRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </Button>
       </div>
     </Card>
-  )
-} 
+  );
+}

@@ -52,9 +52,7 @@ export default function Home() {
           >
             Ascend Flow
           </motion.h1>
-          <div className="mx-auto">
-            <LearningTimer />
-          </div>
+        
           <motion.nav
             className="ml-auto flex gap-4 sm:gap-6"
             initial={{ opacity: 0 }}
