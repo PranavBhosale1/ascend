@@ -16,13 +16,11 @@ export function LearningTimer() {
   const [isRunning, setIsRunning] = useState(true);
   const { user } = useAuth();
 
-  // Get today's date in YYYY-MM-DD format
   const getTodayDate = () => new Date().toISOString().split("T")[0];
 
-  // Save time to MongoDB
   const saveTimeToDatabase = async (newTime: number) => {
     if (!user?.id) return console.warn("⚠️ User not logged in, skipping MongoDB update.");
-
+    
     try {
       console.log("📡 Sending updated time to MongoDB:", newTime);
       const response = await fetch("/api/roadmaps/update-time", {
@@ -30,113 +28,81 @@ export function LearningTimer() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.id,
-          date: getTodayDate(),
+          date: getTodayDate(), // ✅ Ensure consistent date format
           time: newTime,
         }),
       });
-
+  
       if (!response.ok) throw new Error("Failed to update MongoDB");
       console.log("✅ Time successfully saved to MongoDB.");
     } catch (error) {
       console.error("❌ Error saving to MongoDB:", error);
     }
   };
+  
+  // ✅ Auto-save progress every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log("⏳ Auto-saving time...");
+      saveTimeToDatabase(time); // Save the latest time
+    }, 10000); // Every 10 seconds
+  
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, [time]);
+  
+  // ✅ Save before page refresh or close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      console.log("🔄 Page closing, saving progress...");
+      saveTimeToDatabase(time);
+    };
+  
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [time]);
 
-  // Load time from MongoDB
   const loadTimeFromDatabase = async () => {
     if (!user?.id) return console.warn("⚠️ User not logged in, skipping MongoDB load.");
-
+  
     try {
       console.log("📡 Fetching today's time from MongoDB...");
-      const response = await fetch(`/api/roadmaps/update-time?userId=${user.id}`);
+      const today = new Date().toISOString().split("T")[0]; // ✅ Ensure `YYYY-MM-DD` format
+      
+      const response = await fetch(`/api/roadmaps/update-time?userId=${user.id}&date=${today}`);
       const data = await response.json();
-
+  
       if (data?.learningTime !== undefined) {
         console.log(`✅ Loaded time from MongoDB: ${data.learningTime}`);
         setTime(data.learningTime);
       } else {
         console.log("❌ No entry found for today in MongoDB, starting fresh.");
+        setTime(0);
       }
     } catch (error) {
       console.error("❌ Error loading time from MongoDB:", error);
     }
   };
+  
 
-  // Load time from localStorage & MongoDB
   useEffect(() => {
-    const savedData = localStorage.getItem("learningTimeData");
-    const today = getTodayDate();
-
-    if (savedData) {
-      const parsedData: DailyProgress[] = JSON.parse(savedData);
-      const todayEntry = parsedData.find((entry) => entry.date === today);
-
-      if (todayEntry) {
-        console.log(`📅 Found today's entry in localStorage:`, todayEntry);
-        setTime(todayEntry.time);
-      } else {
-        console.log("❌ No entry for today in localStorage, resetting timer.");
-        setTime(0);
-      }
+    if (user?.id) {
+      loadTimeFromDatabase();
     }
-
-    loadTimeFromDatabase();
   }, [user?.id]);
 
-  // Timer logic
   useEffect(() => {
     const interval = setInterval(() => {
       if (!isRunning) return;
-
       setTime((prevTime) => {
         const newTime = prevTime + 1;
         console.log("⏳ Updating time:", newTime);
-
-        const today = getTodayDate();
-        const savedData = localStorage.getItem("learningTimeData");
-        let data: DailyProgress[] = savedData ? JSON.parse(savedData) : [];
-
-        // Update localStorage
-        const todayIndex = data.findIndex((entry) => entry.date === today);
-        if (todayIndex !== -1) {
-          data[todayIndex].time = newTime;
-        } else {
-          data.push({ date: today, time: newTime });
-        }
-        localStorage.setItem("learningTimeData", JSON.stringify(data));
-
-        // Save to MongoDB every minute
         if (newTime % 60 === 0) saveTimeToDatabase(newTime);
-
         return newTime;
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, [isRunning, user?.id]);
 
-  // Reset timer when the day changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const today = getTodayDate();
-      const savedData = localStorage.getItem("learningTimeData");
-
-      if (savedData) {
-        const parsedData: DailyProgress[] = JSON.parse(savedData);
-        const latestEntry = parsedData[parsedData.length - 1];
-
-        if (latestEntry?.date !== today) {
-          console.log("🌅 New day detected, resetting timer.");
-          setTime(0);
-          saveTimeToDatabase(0);
-        }
-      }
-    }, 60000); // Check every minute
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Pause timer when tab is hidden
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -148,12 +114,10 @@ export function LearningTimer() {
         setIsRunning(true);
       }
     };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [time]);
 
-  // Format time display
   const hours = Math.floor(time / 3600);
   const minutes = Math.floor((time % 3600) / 60);
   const seconds = time % 60;

@@ -48,8 +48,8 @@ export default function DashboardLayout({
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
     {
-      title: "Calendar",
-      href: "/dashboard/calendar",
+      title: "Weekly Progress",
+      href: "/dashboard/weeklyprogress",
       icon: <Calendar className="h-5 w-5" />,
     },
     {

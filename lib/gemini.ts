@@ -599,3 +599,35 @@ function getMockLearningPath(skills: string[] | string, timeCommitment: string):
 }
 
 
+// lib/gemini.ts
+
+
+
+const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || "");
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+export async function generateResponseFromTranscript(transcript: string) {
+  console.log("Starting generateResponseFromTranscript...");
+  try {
+    const prompt = `Generate notes for the following transcript in points: ${transcript}`;
+    console.log("Prompt generated:", prompt);
+
+    console.log("Sending prompt to Gemini...");
+    const result = await model.generateContent(prompt);
+    console.log("Gemini response received.");
+
+    const response = await result.response;
+    console.log("Extracted response object.");
+
+    const text = response.text();
+    console.log("Extracted response text:", text);
+
+    console.log("generateResponseFromTranscript completed successfully.");
+    return text;
+  } catch (error) {
+    console.error("Error in generateResponseFromTranscript:", error);
+    console.error("Error Details:", error); // Log the full error object for debugging
+    console.log("generateResponseFromTranscript failed.");
+    return "An error occurred while generating the response."; // Or throw error
+  }
+}

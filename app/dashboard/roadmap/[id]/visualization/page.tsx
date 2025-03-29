@@ -21,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
-import { Timer } from "@/components/timer"
+
 
 interface Topic {
   _id: string
@@ -363,9 +363,9 @@ export default function RoadmapVisualizationPage() {
                 <CardTitle>{activeTopic.name}</CardTitle>
                 <CardDescription>Day {activeTopic.day}</CardDescription>
               </div>
-              <Badge variant={activeTopic.completed ? "success" : "outline"}>
-                {activeTopic.completed ? "Completed" : "In Progress"}
-              </Badge>
+              <Badge variant={activeTopic?.completed ? "default" : "outline"}>
+  {activeTopic?.completed ? "Completed" : "Pending"}
+</Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">

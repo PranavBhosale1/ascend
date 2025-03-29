@@ -384,7 +384,6 @@ export default function DashboardPage() {
       <Tabs defaultValue="roadmaps" className="space-y-6">
         <TabsList>
           <TabsTrigger value="roadmaps">My Roadmaps</TabsTrigger>
-          <TabsTrigger value="progress">Progress</TabsTrigger>
         </TabsList>
 
         <TabsContent value="roadmaps">
