@@ -15,8 +15,8 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import axios from "axios";
 import { jsPDF } from "jspdf";
-
-
+import Chat from '@/components/chat';
+import { AliveScope, KeepAlive } from 'react-activation';
 
 // MongoDB Roadmap interface
 interface MongoRoadmap {
@@ -81,6 +81,24 @@ export default function RoadmapViewPage() {
   const [isSaving, setIsSaving] = useState<boolean>(false)
   const [notes, setNotes] = useState<string>('');
   const [transcript, setTranscript] = useState<string | null>(null); // Make sure this is defined
+  const [tabValue, setTabValue] = useState<string>(() => localStorage.getItem('selectedTab') || 'video');
+  const [previousUrl, setPreviousUrl] = useState<string>(activeVideoUrl || ''); // Fallback to empty string if null
+
+
+  useEffect(() => {
+    if (activeVideoUrl !== previousUrl) {
+      // Reset tab to 'video' when activeVideoUrl changes
+      setTabValue('video');
+      localStorage.setItem('selectedTab', 'video');
+      setPreviousUrl(activeVideoUrl ?? ''); // If it's null, use an empty string
+      // Update the previous URL to the current URL
+    }
+  }, [activeVideoUrl, previousUrl]);
+
+  const handleTabChange = (value: string) => {
+    setTabValue(value);
+    localStorage.setItem('selectedTab', value); // Save the selected tab to localStorage
+  };
 
   useEffect(() => {
     if (user && params.id) {
@@ -363,31 +381,31 @@ export default function RoadmapViewPage() {
 
   const fetchTranscript = async () => {
     if (!activeVideoUrl) return;
-  
+
     try {
       setIsLoading(true);
       console.log("Video URL:", activeVideoUrl);
-  
+
       // Step 1: Fetch the transcript from your backend using the video URL
       const transcriptResponse = await axios.post("/api/transcript", { videoUrl: activeVideoUrl });
-  
+
       if (transcriptResponse.data.error) {
         setNotes("Error fetching transcript."); // Set notes with error, as we're only returning notes
         return; // Stop execution if there's an error fetching the transcript
       }
-  
+
       const transcript = transcriptResponse.data.transcript || "Transcript not available.";
-  
+
       // Step 2: Send the transcript to Gemini for note generation
       const notesResponse = await axios.post("/api/generateNotes", { transcript });
       console.log("Notes lalal Response:", notesResponse.data); // Inspect the entire response
-    
+
       if (notesResponse.data.error) {
         setNotes("Error generating notes.");
       } else {
         setNotes(notesResponse.data.notes || "Notes generation failed.");
       }
-  
+
     } catch (error) {
       setNotes("Error: Failed to process video and generate notes."); // Consolidated error handling.
     } finally {
@@ -419,376 +437,394 @@ export default function RoadmapViewPage() {
     doc.save("transcript.pdf");
   };
 
+
+
   function cleanTranscript(text: string): string {
     // Split the text into lines
     const lines = text.split('\n');
-    
+
     // Remove the first line
     lines.shift();
-    
+
     // Remove all asterisks and trim each line
     const cleanedLines = lines.map(line => line.replace(/\*/g, '').trim());
-    
+
     // Join the cleaned lines back into a single text block
     return cleanedLines.join('\n');
   }
-  
+
+
+
+
   return (
-    <div className="flex-1 space-y-6 p-6">
-      <div className="flex items-center gap-2 mb-6">
-        <Button variant="outline" size="icon" asChild>
-          <Link href="/dashboard">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <h1 className="text-3xl font-bold">{ roadmap?.title || 'Roadmap View' }</h1>
-
-        {/* Show progress information */ }
-        { roadmap && (
-          <div className="ml-auto flex items-center gap-2">
-            <div className="text-sm text-muted-foreground mr-2">
-              { completedVideos.length } / { roadmap.topics.reduce((total, topic) => {
-                return total + topic.links.reduce((sum, linkGroup) => sum + linkGroup.length, 0);
-              }, 0) } videos completed
-            </div>
-            <Progress value={ progress } className="w-24 h-2" />
-            <span className="text-sm font-medium">{ progress }%</span>
-          </div>
-        ) }
-      </div>
-
-      { isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-1">
-            <Card>
-              <CardHeader>
-                <Skeleton className="h-8 w-1/2" />
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  { Array(3).fill(0).map((_, i) => (
-                    <Skeleton key={ i } className="h-10 w-full" />
-                  )) }
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="md:col-span-2">
-            <Card>
-              <CardHeader>
-                <Skeleton className="h-8 w-1/2" />
-                <Skeleton className="h-4 w-3/4" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="aspect-video w-full" />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      ) : roadmap ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Topics Navigation Sidebar */ }
-          <div className="md:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle>Topics</CardTitle>
-                <CardDescription>
-                  { roadmap.description }
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  { roadmap.topics.map((topic, index) => (
-                    <Collapsible
-                      key={ topic._id || index }
-                      open={ expandedTopics.includes(topic._id) }
-                      onOpenChange={ () => toggleTopic(topic._id) }
-                      className={ `border rounded-md overflow-hidden ${activeTopicIndex === index ? 'border-primary' : ''} ${completedTopics.includes(topic._id) ? 'bg-muted/50' : ''}` }
-                    >
-                      <CollapsibleTrigger className="flex items-center justify-between w-full p-3 hover:bg-muted/50">
-                        <div className="flex items-center">
-                          <span className={ `${activeTopicIndex === index ? 'bg-primary' : completedTopics.includes(topic._id) ? 'bg-green-500' : 'bg-muted'} text-primary-foreground w-6 h-6 flex items-center justify-center rounded-full text-xs mr-3` }>
-                            { completedTopics.includes(topic._id) ?
-                              <CheckCircle className="h-3 w-3" /> :
-                              topic.day
-                            }
-                          </span>
-                          <span className="font-medium">{ topic.name }</span>
-                        </div>
-                        { expandedTopics.includes(topic._id) ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        ) }
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="border-t px-3 py-2 bg-muted/20">
-                        <ul className="space-y-2 pl-9">
-                          { topic.queries.map((query, queryIndex) => (
-                            <li key={ queryIndex } className="text-sm">
-                              <Button
-                                variant={ index === activeTopicIndex && queryIndex === activeQueryIndex ? "default" : "ghost" }
-                                className="text-left justify-start h-auto py-1 px-2 w-full"
-                                onClick={ () => {
-                                  setActiveTopicIndex(index);
-                                  setActiveQueryIndex(queryIndex);
-                                  // Set first video of this query as active
-                                  if (topic.links && topic.links[queryIndex] &&
-                                    topic.links[queryIndex].length > 0) {
-                                    setActiveVideoUrl(topic.links[queryIndex][0]);
-                                  } else {
-                                    setActiveVideoUrl(null);
-                                  }
-                                } }
-                              >
-                                <span className="truncate">{ query }</span>
-                                {/* Show if all videos for this query are completed */ }
-                                { topic.links[queryIndex] &&
-                                  topic.links[queryIndex].length > 0 &&
-                                  topic.links[queryIndex].every(link => completedVideos.includes(link)) && (
-                                    <Check className="h-3 w-3 ml-2 text-green-500" />
-                                  ) }
-                              </Button>
-                            </li>
-                          )) }
-                        </ul>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  )) }
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Content Area */ }
-          <div className="md:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  { roadmap.topics[activeTopicIndex]?.name || "Select a Topic" }
-                </CardTitle>
-                <CardDescription>
-                  { roadmap.topics[activeTopicIndex]?.queries[activeQueryIndex] || "Select a query to study" }
-                </CardDescription>
-              </CardHeader>
-
-              <Tabs defaultValue="video" className="px-6">
-                <TabsList>
-                  <TabsTrigger value="video">Video</TabsTrigger>
-                  <TabsTrigger value="resources">Resources</TabsTrigger>
-                  <TabsTrigger value="transcript">Notes</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="video" className="space-y-4">
-                  { activeVideoUrl ? (
-                    <div className="aspect-video overflow-hidden rounded-lg mt-2">
-                      <iframe
-                        className="w-full h-full"
-                        src={ getEmbedUrl(activeVideoUrl || '') }
-                        title="YouTube video player"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      ></iframe>
-                    </div>
-                  ) : (
-                    <div className="aspect-video bg-muted rounded-lg flex items-center justify-center mt-2">
-                      <div className="text-center p-4">
-                        <Video className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                        <p className="text-muted-foreground">Select a topic to watch videos</p>
-                      </div>
-                    </div>
-                  ) }
-
-                  {/* Video Controls */ }
-                  { activeVideoUrl && (
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm text-muted-foreground">
-                        { isVideoCompleted(activeVideoUrl) ?
-                          <span className="flex items-center text-green-600">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Completed
-                          </span> :
-                          "Watching..."
-                        }
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={ () => markVideoAsCompleted(activeVideoUrl) }
-                        disabled={ isVideoCompleted(activeVideoUrl) }
-                      >
-                        Mark as Completed
-                      </Button>
-                    </div>
-                  ) }
-
-                  {/* Video List */ }
-                  { roadmap.topics[activeTopicIndex] && (
-                    <div className="pt-4 border-t">
-                      <h3 className="text-sm font-semibold mb-3">Available Videos</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        { roadmap.topics[activeTopicIndex].links[activeQueryIndex]?.map((link, linkIndex) => (
-                          <Button
-                            key={ linkIndex }
-                            variant={ activeVideoUrl === link ? "default" : isVideoCompleted(link) ? "outline" : "outline" }
-                            className={ `justify-start h-auto py-2 px-3 ${isVideoCompleted(link) ? 'border-green-500' : ''}` }
-                            onClick={ () => setActiveVideoUrl(link) }
-                          >
-                            { isVideoCompleted(link) ? (
-                              <CheckCircle className="h-4 w-4 mr-2 flex-shrink-0 text-green-500" />
-                            ) : (
-                              <Video className="h-4 w-4 mr-2 flex-shrink-0" />
-                            ) }
-                            <span className="truncate">Video { linkIndex + 1 }</span>
-                          </Button>
-                        )) }
-                      </div>
-                      { (!roadmap.topics[activeTopicIndex].links[activeQueryIndex] ||
-                        roadmap.topics[activeTopicIndex].links[activeQueryIndex].length === 0) && (
-                          <div className="text-center py-6">
-                            <p className="text-muted-foreground">No videos available for this query</p>
-                          </div>
-                        ) }
-                    </div>
-                  ) }
-                </TabsContent>
-
-                <TabsContent value="resources">
-                  <div className="py-4">
-                    <div className="rounded-lg border p-4">
-                      <h3 className="font-medium text-lg mb-2 flex items-center">
-                        <Bookmark className="h-5 w-5 mr-2" />
-                        Related Resources
-                      </h3>
-
-                      <div className="space-y-3 mt-4">
-                        <div className="p-3 bg-muted/40 rounded-md">
-                          <h4 className="font-medium">Documentation</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Official documentation and guides for this topic
-                          </p>
-                          <Button variant="link" className="px-0 h-auto py-1">
-                            View Documentation
-                          </Button>
-                        </div>
-
-                        <div className="p-3 bg-muted/40 rounded-md">
-                          <h4 className="font-medium">Articles</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Blog posts, tutorials and community resources
-                          </p>
-                          <Button variant="link" className="px-0 h-auto py-1">
-                            View Articles
-                          </Button>
-                        </div>
-
-                        <div className="p-3 bg-muted/40 rounded-md">
-                          <h4 className="font-medium">Practice Exercises</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Hands-on exercises to practice your skills
-                          </p>
-                          <Button variant="link" className="px-0 h-auto py-1">
-                            View Exercises
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="transcript">
-  <div className="py-4">
-    <div className="rounded-lg border p-4">
-      <h3 className="font-medium text-lg mb-2 flex items-center">
-        <FileText className="h-5 w-5 mr-2" />
-        Transcript & Notes
-      </h3>
-
-      <div className="mt-4 space-y-4">
-        <div>
-          <Button
-            size="sm"
-            onClick={fetchTranscript}
-            disabled={isLoading || !activeVideoUrl}
-          >
-            {isLoading ? "Fetching Transcript & Notes..." : "Fetch Transcript & Notes"}
+    <AliveScope>
+      <div className="flex-1 space-y-6 p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <Button variant="outline" size="icon" asChild>
+            <Link href="/dashboard">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="ml-2"
-            onClick={generatePDF}
-            disabled={!notes} // Changed to notes
-          >
-            <Download className="h-4 w-4 mr-1" /> Download Notes as PDF
-          </Button>
-        </div>
+          <h1 className="text-3xl font-bold">{ roadmap?.title || 'Roadmap View' }</h1>
 
-        <textarea
-          className="w-full min-h-[300px] p-3 mt-4 rounded-md border resize-y"
-          placeholder="Notes generated from the transcript will appear here..."
-          value={cleanTranscript(notes)|| ""} // Changed to notes
-          readOnly
-        />
-      </div>
-    </div>
-  </div>
-</TabsContent>
-
-              </Tabs>
-
-              {/* Navigation Buttons */ }
-              <div className="flex justify-between px-6 py-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={ navigateToPreviousTopic }
-                  disabled={ activeTopicIndex === 0 && activeQueryIndex === 0 }
-                >
-                  <ChevronLeft className="mr-2 h-4 w-4" />
-                  Previous
-                </Button>
-
-                <Button
-                  onClick={ navigateToNextTopic }
-                  disabled={ !roadmap || (activeTopicIndex >= roadmap.topics.length - 1 &&
-                    activeQueryIndex >= roadmap.topics[activeTopicIndex]?.queries.length - 1) }
-                >
-                  Next
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
+          {/* Show progress information */ }
+          { roadmap && (
+            <div className="ml-auto flex items-center gap-2">
+              <div className="text-sm text-muted-foreground mr-2">
+                { completedVideos.length } / { roadmap.topics.reduce((total, topic) => {
+                  return total + topic.links.reduce((sum, linkGroup) => sum + linkGroup.length, 0);
+                }, 0) } videos completed
               </div>
-            </Card>
-          </div>
+              <Progress value={ progress } className="w-24 h-2" />
+              <span className="text-sm font-medium">{ progress }%</span>
+            </div>
+          ) }
         </div>
-      ) : (
-        <Card className="h-96 flex items-center justify-center">
-          <CardContent className="text-center py-12">
-            <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-xl font-medium mb-2">Roadmap Not Found</h3>
-            <p className="text-muted-foreground mb-6">
-              The requested roadmap could not be found
-            </p>
-            <Button asChild>
-              <Link href="/dashboard">Back to Dashboard</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) }
 
-      <div className="flex items-center gap-2">
-        <Badge variant="outline" className="px-3 py-1 text-sm">
-          Progress: { progress || 0 }%
-        </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={ () => router.push(`/dashboard/roadmap/${params.id}/visualization`) }
-        >
-          <Map className="mr-2 h-4 w-4" />
-          Visual Map
-        </Button>
-        <Button onClick={ () => router.back() } variant="outline" size="sm">
-          Back
-        </Button>
+        { isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1">
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-8 w-1/2" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    { Array(3).fill(0).map((_, i) => (
+                      <Skeleton key={ i } className="h-10 w-full" />
+                    )) }
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="md:col-span-2">
+              <Card>
+                <CardHeader>
+                  <Skeleton className="h-8 w-1/2" />
+                  <Skeleton className="h-4 w-3/4" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="aspect-video w-full" />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : roadmap ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Topics Navigation Sidebar */ }
+            <div className="md:col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Topics</CardTitle>
+                  <CardDescription>
+                    { roadmap.description }
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    { roadmap.topics.map((topic, index) => (
+                      <Collapsible
+                        key={ topic._id || index }
+                        open={ expandedTopics.includes(topic._id) }
+                        onOpenChange={ () => toggleTopic(topic._id) }
+                        className={ `border rounded-md overflow-hidden ${activeTopicIndex === index ? 'border-primary' : ''} ${completedTopics.includes(topic._id) ? 'bg-muted/50' : ''}` }
+                      >
+                        <CollapsibleTrigger className="flex items-center justify-between w-full p-3 hover:bg-muted/50">
+                          <div className="flex items-center">
+                            <span className={ `${activeTopicIndex === index ? 'bg-primary' : completedTopics.includes(topic._id) ? 'bg-green-500' : 'bg-muted'} text-primary-foreground w-6 h-6 flex items-center justify-center rounded-full text-xs mr-3` }>
+                              { completedTopics.includes(topic._id) ?
+                                <CheckCircle className="h-3 w-3" /> :
+                                topic.day
+                              }
+                            </span>
+                            <span className="font-medium">{ topic.name }</span>
+                          </div>
+                          { expandedTopics.includes(topic._id) ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) }
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="border-t px-3 py-2 bg-muted/20">
+                          <ul className="space-y-2 pl-9">
+                            { topic.queries.map((query, queryIndex) => (
+                              <li key={ queryIndex } className="text-sm">
+                                <Button
+                                  variant={ index === activeTopicIndex && queryIndex === activeQueryIndex ? "default" : "ghost" }
+                                  className="text-left justify-start h-auto py-1 px-2 w-full"
+                                  onClick={ () => {
+                                    setActiveTopicIndex(index);
+                                    setActiveQueryIndex(queryIndex);
+                                    // Set first video of this query as active
+                                    if (topic.links && topic.links[queryIndex] &&
+                                      topic.links[queryIndex].length > 0) {
+                                      setActiveVideoUrl(topic.links[queryIndex][0]);
+                                    } else {
+                                      setActiveVideoUrl(null);
+                                    }
+                                  } }
+                                >
+                                  <span className="truncate">{ query }</span>
+                                  {/* Show if all videos for this query are completed */ }
+                                  { topic.links[queryIndex] &&
+                                    topic.links[queryIndex].length > 0 &&
+                                    topic.links[queryIndex].every(link => completedVideos.includes(link)) && (
+                                      <Check className="h-3 w-3 ml-2 text-green-500" />
+                                    ) }
+                                </Button>
+                              </li>
+                            )) }
+                          </ul>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    )) }
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Content Area */ }
+            <div className="md:col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    { roadmap.topics[activeTopicIndex]?.name || "Select a Topic" }
+                  </CardTitle>
+                  <CardDescription>
+                    { roadmap.topics[activeTopicIndex]?.queries[activeQueryIndex] || "Select a query to study" }
+                  </CardDescription>
+                </CardHeader>
+
+                <Tabs value={ tabValue } onValueChange={ handleTabChange } className="px-6">
+                  <TabsList>
+                    <TabsTrigger value="video">Video</TabsTrigger>
+                    <TabsTrigger value="resources">Resources</TabsTrigger>
+                    <TabsTrigger value="transcript">Notes</TabsTrigger>
+                    <TabsTrigger value="chat">Chat</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="video" className="space-y-4">
+                    { activeVideoUrl ? (
+                      <div className="aspect-video overflow-hidden rounded-lg mt-2">
+                        <iframe
+                          className="w-full h-full"
+                          src={ getEmbedUrl(activeVideoUrl || '') }
+                          title="YouTube video player"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        ></iframe>
+                      </div>
+                    ) : (
+                      <div className="aspect-video bg-muted rounded-lg flex items-center justify-center mt-2">
+                        <div className="text-center p-4">
+                          <Video className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-muted-foreground">Select a topic to watch videos</p>
+                        </div>
+                      </div>
+                    ) }
+
+                    {/* Video Controls */ }
+                    { activeVideoUrl && (
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm text-muted-foreground">
+                          { isVideoCompleted(activeVideoUrl) ?
+                            <span className="flex items-center text-green-600">
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Completed
+                            </span> :
+                            "Watching..."
+                          }
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={ () => markVideoAsCompleted(activeVideoUrl) }
+                          disabled={ isVideoCompleted(activeVideoUrl) }
+                        >
+                          Mark as Completed
+                        </Button>
+                      </div>
+                    ) }
+
+                    {/* Video List */ }
+                    { roadmap.topics[activeTopicIndex] && (
+                      <div className="pt-4 border-t">
+                        <h3 className="text-sm font-semibold mb-3">Available Videos</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          { roadmap.topics[activeTopicIndex].links[activeQueryIndex]?.map((link, linkIndex) => (
+                            <Button
+                              key={ linkIndex }
+                              variant={ activeVideoUrl === link ? "default" : isVideoCompleted(link) ? "outline" : "outline" }
+                              className={ `justify-start h-auto py-2 px-3 ${isVideoCompleted(link) ? 'border-green-500' : ''}` }
+                              onClick={ () => setActiveVideoUrl(link) }
+                            >
+                              { isVideoCompleted(link) ? (
+                                <CheckCircle className="h-4 w-4 mr-2 flex-shrink-0 text-green-500" />
+                              ) : (
+                                <Video className="h-4 w-4 mr-2 flex-shrink-0" />
+                              ) }
+                              <span className="truncate">Video { linkIndex + 1 }</span>
+                            </Button>
+                          )) }
+                        </div>
+                        { (!roadmap.topics[activeTopicIndex].links[activeQueryIndex] ||
+                          roadmap.topics[activeTopicIndex].links[activeQueryIndex].length === 0) && (
+                            <div className="text-center py-6">
+                              <p className="text-muted-foreground">No videos available for this query</p>
+                            </div>
+                          ) }
+                      </div>
+                    ) }
+                  </TabsContent>
+
+                  <TabsContent value="chat" forceMount={true}>
+        {tabValue === 'chat' && (
+          <KeepAlive name="Chat">
+            <Chat activeVideoUrl={activeVideoUrl ?? ""} />
+          </KeepAlive>
+        )}
+      </TabsContent>
+
+
+                  <TabsContent value="resources">
+                    <div className="py-4">
+                      <div className="rounded-lg border p-4">
+                        <h3 className="font-medium text-lg mb-2 flex items-center">
+                          <Bookmark className="h-5 w-5 mr-2" />
+                          Related Resources
+                        </h3>
+
+                        <div className="space-y-3 mt-4">
+                          <div className="p-3 bg-muted/40 rounded-md">
+                            <h4 className="font-medium">Documentation</h4>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Official documentation and guides for this topic
+                            </p>
+                            <Button variant="link" className="px-0 h-auto py-1">
+                              View Documentation
+                            </Button>
+                          </div>
+
+                          <div className="p-3 bg-muted/40 rounded-md">
+                            <h4 className="font-medium">Articles</h4>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Blog posts, tutorials and community resources
+                            </p>
+                            <Button variant="link" className="px-0 h-auto py-1">
+                              View Articles
+                            </Button>
+                          </div>
+
+                          <div className="p-3 bg-muted/40 rounded-md">
+                            <h4 className="font-medium">Practice Exercises</h4>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Hands-on exercises to practice your skills
+                            </p>
+                            <Button variant="link" className="px-0 h-auto py-1">
+                              View Exercises
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="transcript">
+                    <div className="py-4">
+                      <div className="rounded-lg border p-4">
+                        <h3 className="font-medium text-lg mb-2 flex items-center">
+                          <FileText className="h-5 w-5 mr-2" />
+                          Transcript & Notes
+                        </h3>
+
+                        <div className="mt-4 space-y-4">
+                          <div>
+                            <Button
+                              size="sm"
+                              onClick={ fetchTranscript }
+                              disabled={ isLoading || !activeVideoUrl }
+                            >
+                              { isLoading ? "Fetching Transcript & Notes..." : "Fetch Transcript & Notes" }
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="ml-2"
+                              onClick={ generatePDF }
+                              disabled={ !notes } // Changed to notes
+                            >
+                              <Download className="h-4 w-4 mr-1" /> Download Notes as PDF
+                            </Button>
+                          </div>
+
+                          <textarea
+                            className="w-full min-h-[300px] p-3 mt-4 rounded-md border resize-y"
+                            placeholder="Notes generated from the transcript will appear here..."
+                            value={ cleanTranscript(notes) || "" } // Changed to notes
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                </Tabs>
+
+
+                {/* Navigation Buttons */ }
+                <div className="flex justify-between px-6 py-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={ navigateToPreviousTopic }
+                    disabled={ activeTopicIndex === 0 && activeQueryIndex === 0 }
+                  >
+                    <ChevronLeft className="mr-2 h-4 w-4" />
+                    Previous
+                  </Button>
+
+                  <Button
+                    onClick={ navigateToNextTopic }
+                    disabled={ !roadmap || (activeTopicIndex >= roadmap.topics.length - 1 &&
+                      activeQueryIndex >= roadmap.topics[activeTopicIndex]?.queries.length - 1) }
+                  >
+                    Next
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          </div>
+        ) : (
+          <Card className="h-96 flex items-center justify-center">
+            <CardContent className="text-center py-12">
+              <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-xl font-medium mb-2">Roadmap Not Found</h3>
+              <p className="text-muted-foreground mb-6">
+                The requested roadmap could not be found
+              </p>
+              <Button asChild>
+                <Link href="/dashboard">Back to Dashboard</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) }
+
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="px-3 py-1 text-sm">
+            Progress: { progress || 0 }%
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={ () => router.push(`/dashboard/roadmap/${params.id}/visualization`) }
+          >
+            <Map className="mr-2 h-4 w-4" />
+            Visual Map
+          </Button>
+          <Button onClick={ () => router.back() } variant="outline" size="sm">
+            Back
+          </Button>
+        </div>
       </div>
-    </div>
+    </AliveScope>
   )
 } 
